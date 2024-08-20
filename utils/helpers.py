@@ -5,8 +5,8 @@ import time
 import json
 import random
 import string
-from datetime import datetime 
 from colorama import *
+from datetime import datetime 
 
 mrh = Fore.LIGHTRED_EX
 pth = Fore.LIGHTWHITE_EX

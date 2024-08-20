@@ -4,10 +4,10 @@ import base64
 import random
 import http.client
 from colorama import *
-from utils.helpers import log,mrh,hju,kng,pth,bru,htm, reset, generate_random_nonce, _number, read_config
-from utils.queries import QUERY_BOOSTER, QUERY_GAME_CONFIG, QUERY_USER, QUERY_NEXT_BOSS, MUTATION_GAME_PROCESS_TAPS_BATCH
-from utils.headers import headers_set
 from urllib.parse import unquote
+from utils.headers import headers_set
+from utils.helpers import log,mrh,hju,kng,pth,bru,htm, reset, generate_random_nonce, _number, read_config
+from utils.queries import QUERY_BOOSTER, QUERY_GAME_CONFIG, QUERY_USER, QUERY_NEXT_BOSS, MUTATION_GAME_PROCESS_TAPS_BATCH, QUERY_COMBO
         
 config = read_config()
 proxy_file = ('proxy.txt')
@@ -164,7 +164,7 @@ def activate_energy_recharge_booster(index, headers):
     if response and 'data' in response and response['data'] and 'telegramGameActivateBooster' in response['data']:
         new_energy = response['data']['telegramGameActivateBooster']['currentEnergy']
         log(hju + f"succesfully charged {pth}{new_energy} {kng}energy ")
-        log(htm + f"~" * 40)
+        time.sleep(1)
     else:
         log(f"{mrh}recharge Booster incomplete or missing data.{reset}")
 
@@ -200,10 +200,14 @@ def activate_booster(index, headers):
         set_next_boss(index, headers)
         return
 
-    crazy_damage = config.get('crazy_damage', False)
     min_damage = config.get('min_damage', 1000) 
     max_damage = config.get('max_damage', 10000)
-    total_hit = random.randint(min_damage, max_damage) if crazy_damage else random.randint(1000, 5000) * 1000
+    damage = config.get('crazy_damage', False)
+    
+    if damage == True:
+        total_hit = random.randint(min_damage, max_damage)
+    else:
+        total_hit = random.randint(10000, 20000)
 
     tap_payload = {
         "operationName": "MutationGameProcessTapsBatch",
@@ -215,8 +219,8 @@ def activate_booster(index, headers):
         },
         "query": MUTATION_GAME_PROCESS_TAPS_BATCH
     }
-
-    for attempt in range(14):
+    attempt_hit = config.get('attempt_hit_boss',5)
+    for attempt in range(attempt_hit):
         stat_result = cek_stat(index, headers)
         if not stat_result:
             log(f"{mrh}Failed to retrieve stats on attempt {attempt + 1}.{reset}")
@@ -230,15 +234,18 @@ def activate_booster(index, headers):
 
         tap_data = tap_result['data']['telegramGameProcessTapsBatch']
         boss_level = tap_data['currentBoss']['level']
+        balance = tap_data['coinsAmount']
         log(kng + f"Fighting {hju}with the boss on {pth}level {boss_level}")
-        if bos_health == 0 or boss_level == 13:
+        if bos_health == 0 :
             set_next_boss(index, headers)
-            log(bru + f"Success ! balance now {pth}{_number(tap_data['coinsAmount'])} {hju}coins")
-            log(hju + f"Current health {mrh}{_number(tap_data['currentBoss']['currentHealth'])} {hju}remaining")
             continue
-    else:
-        log(f"{mrh}Failed after 3 attempts.{reset}")
-        return
+        elif bos_health <= current_health:
+            log(bru + f"Success ! {hju}balance {pth}{_number(balance)} {hju}coins")
+            log(hju + f"Current health {mrh}{_number(tap_data['currentBoss']['currentHealth'])} {hju}remaining")
+        elif balance == balance or bos_health == current_health:
+            log(mrh + f"Failed {pth}{attempt + 1} {mrh}to fight the boss")
+        else:
+            log(mrh + f"Failed {pth}{attempt + 1} {mrh}to defeat the boss")
 
 def submit_taps(index, json_payload):
     access_token = fetch(index + 1)
@@ -303,11 +310,9 @@ def claim_combo(index, headers):
     nonce = generate_random_nonce()
     taps_count = random.randint(5, 10)
 
-    # Membaca vector dari combo.txt
     with open('combo.txt', 'r') as file:
         vector = file.readline().strip()
         
-
     claim_combo_payload = {
         "operationName": "MutationGameProcessTapsBatch",
         "variables": {
@@ -317,51 +322,7 @@ def claim_combo(index, headers):
                 "vector": vector
             }
         },
-        "query": """
-        mutation MutationGameProcessTapsBatch($payload: TelegramGameTapsBatchInput!) {
-          telegramGameProcessTapsBatch(payload: $payload) {
-            ...FragmentBossFightConfig
-            __typename
-          }
-        }
-
-        fragment FragmentBossFightConfig on TelegramGameConfigOutput {
-          _id
-          coinsAmount
-          currentEnergy
-          maxEnergy
-          weaponLevel
-          zonesCount
-          tapsReward
-          energyLimitLevel
-          energyRechargeLevel
-          tapBotLevel
-          currentBoss {
-            _id
-            level
-            currentHealth
-            maxHealth
-            __typename
-          }
-          freeBoosts {
-            _id
-            currentTurboAmount
-            maxTurboAmount
-            turboLastActivatedAt
-            turboAmountLastRechargeDate
-            currentRefillEnergyAmount
-            maxRefillEnergyAmount
-            refillEnergyLastActivatedAt
-            refillEnergyAmountLastRechargeDate
-            __typename
-          }
-          bonusLeaderDamageEndAt
-          bonusLeaderDamageStartAt
-          bonusLeaderDamageMultiplier
-          nonce
-          __typename
-        }
-        """
+        "query": QUERY_COMBO
     }
 
     response = safe_post(url, headers, claim_combo_payload)
